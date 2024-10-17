@@ -50,6 +50,7 @@ module aptos_sql::gate {
                 debug::print(&string::sub_string(&input,13+space_index,vector::length(string::bytes(&input))));
                 let form_placr_index = find_space(string::sub_string(&input,13+space_index,vector::length(string::bytes(&input))));
                 let form_place =string::sub_string(&input,13+space_index,13+space_index+form_placr_index);
+                debug::print(&form_place);
                 let return_vector = search_all_node_without_information(form_place);
                 debug::print(&form_place);
         }else{

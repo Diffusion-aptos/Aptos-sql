@@ -2,17 +2,19 @@ module aptos_sql::sql_struct {
 
     use std::option;
     use std::option::Option;
+    use std::signer::address_of;
     use std::string;
     use std::string::{String, utf8};
     use std::vector;
     use aptos_std::debug;
     use aptos_std::smart_table;
+    use aptos_std::smart_table::SmartTable;
     use aptos_std::smart_vector;
     use aptos_std::smart_vector::{SmartVector, borrow};
     use aptos_std::table;
     use aptos_std::table_with_length;
     use aptos_std::table_with_length::TableWithLength;
-    use aptos_framework::account::{create_resource_account, SignerCapability};
+    use aptos_framework::account::{create_resource_account, SignerCapability, create_signer_with_capability};
     use aptos_framework::object;
     use aptos_framework::object::{Object, DeleteRef, ExtendRef, TransferRef, create_object_address};
     use aptos_framework::account::create_resource_address;
@@ -31,6 +33,7 @@ module aptos_sql::sql_struct {
     const Max_Organ:u64 = 3; // Max leaf key
     const Id_range:u64 = 40; // Leaf node id range
     const Leaf_key_id:u64=50;
+    const Table_colume_number:u64=100;
 
     // ============ ability ============ //
     struct Obj_cap has key,store{
@@ -92,12 +95,14 @@ module aptos_sql::sql_struct {
     struct Leaf_node has key,store{
         is_leaf:u8,
         id_start:u64,
+        now_leaf:u64,
         id_end:u64,
         key_word_store:smart_vector::SmartVector<Leaf_key>
     }
     // Root entry of all
     struct Root_node has key{
         entry_number:u64,
+        leaf_number:u64,
         children:SmartVector<Leaf_node>
     }
     //init for aptos sql
@@ -154,6 +159,7 @@ module aptos_sql::sql_struct {
         move_to(&object_signer,objet_cap );
         move_to(&object_signer,Root_node{
             entry_number:0,
+            leaf_number:1,
             children:smart_vector::new<Leaf_node>()
         });
     }
@@ -165,6 +171,7 @@ module aptos_sql::sql_struct {
             is_leaf:1,
             id_start:0,
             id_end:Id_range-1,
+            now_leaf:0,
             key_word_store:smart_vector::new<Leaf_key>()
         };
         let borrow_root = borrow_global_mut<Root_node>(create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed));
@@ -264,7 +271,72 @@ module aptos_sql::sql_struct {
         };
         new_vector
     }
+    fun add_table_date (data_vector:&vector<String>,smart_table1:&mut SmartTable<Table_v1,Table_v2>,table_name1:String){
+        let i =0;
+        let x_index= 1;
+        let y_index = 1;
+        let pointer_index = 1;
+        let length = vector::length(data_vector);
+        if(length != 0){
+              while(i < length){
+                  let spesific =vector::borrow(data_vector,i);
+                  if(i+1 == length){
+                      let new_table_v1 = Table_v1{
+                          table_name:table_name1,
+                          x:x_index,
+                          y:y_index,
+                          ponter_v2_id:option::some(pointer_index)
+                      };
+                      let  new_table_v2 = Table_v2{
+                          table_id:pointer_index,
+                          store:*spesific,
+                          pointer_y:option::none<Table_v1>()
+                      };
+                      smart_table::add(smart_table1,new_table_v1,new_table_v2);
+                  }else{
+                      let new_table_v1 = Table_v1{
+                          table_name:table_name1,
+                          x:x_index,
+                          y:y_index,
+                          ponter_v2_id:option::some(pointer_index)
+                      };
 
+                      if(y_index % Table_colume_number == 0){
+                          y_index=1;
+                          x_index=x_index+1;
+                          let next_table_v1 = Table_v1{
+                              table_name:table_name1,
+                              x:x_index,
+                              y:y_index,
+                              ponter_v2_id:option::some(pointer_index+1)
+                          };
+                          let  new_table_v2 = Table_v2{
+                              table_id:pointer_index,
+                              store:*spesific,
+                              pointer_y:option::some(next_table_v1)
+                          };
+                          smart_table::add(smart_table1,new_table_v1,new_table_v2);
+                      }else{
+                          let next_table_v1 = Table_v1{
+                              table_name:table_name1,
+                              x:x_index ,
+                              y:y_index+ 1 ,
+                              ponter_v2_id:option::some(pointer_index+1)
+                          };
+                          let  new_table_v2 = Table_v2{
+                              table_id:pointer_index,
+                              store:*spesific,
+                              pointer_y:option::some(next_table_v1)
+                          };
+                          y_index=y_index+1;
+                          smart_table::add(smart_table1,new_table_v1,new_table_v2);
+                      };
+                  };
+                  i=i+1;
+                  pointer_index = pointer_index + 1;
+              }
+        };
+    }
     //===================== logic fun =========================//
     //===================== public struct fun =========================//
     public fun search_all_node_without_information(name:String): vector<String> acquires Root_node, Object_store {
@@ -293,8 +365,48 @@ module aptos_sql::sql_struct {
         };
         result_vector
     }
-    public fun insert_new_table_struct(caller:&signer){
+    public fun insert_new_table_struct(caller:&signer,table_name:String,isert_data:vector<String>) acquires Root_node, Resouces_cap {
+        let root = borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed));
+        root.entry_number+1;
+        let new_smart_vector_key_word = smart_vector::empty<String>();
+        smart_vector::push_back(&mut new_smart_vector_key_word,table_name);
+        let resource_signer = &create_signer_with_capability(&borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql,Seed)).cap);
 
+        if(root.leaf_number == 1){
+            let borrow_leaf = smart_vector::borrow_mut(&mut root.children,0);
+            if(borrow_leaf.now_leaf == 0){
+                let new_object = object::create_object(address_of(resource_signer));
+                let new_object_extend = object::generate_extend_ref(&new_object);
+                let new_object_transref = object::generate_transfer_ref(&new_object);
+                let new_object_delref = object::generate_delete_ref(&new_object);
+                object::disable_ungated_transfer(&new_object_transref);
+                let new_object_cap = Obj_cap{
+                    del_ref:option::some(new_object_delref),
+                    extend_ref:new_object_extend,
+                    trans_ref:new_object_transref
+                };
+                move_to(&object::generate_signer(&new_object),new_object_cap);
+                let new_tanle = smart_table::new<Table_v1,Table_v2>();
+                let new_object_store = Object_store{
+                    is_leaf:0,
+                    own_leaf_id:1,
+                    next_leaf:option::none<address>(),
+                    obj_store_id:1,
+                    next_obj_store_id:2,
+                    key_word:table_name,
+                    store:new_tanle
+                };
+                move_to(&object::generate_signer(&new_object), new_object_store);
+                let object_store = object::object_from_constructor_ref<Object_store>(&new_object);
+                let new_leaf_key = Leaf_key{
+                    id:1,
+                    key_word:new_smart_vector_key_word,
+                    key_address:object_store
+                };
+                smart_vector::push_back(&mut borrow_leaf.key_word_store,new_leaf_key);
+            }
+        }
+        // create_object_store_proof(caller:&signer,key_word1:String,object_store_id1:u64)  // create key nft to owner
     }
     //===================== public struct fun =========================//
 }
