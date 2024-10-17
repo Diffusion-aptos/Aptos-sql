@@ -46,7 +46,7 @@ module aptos_sql::data_owner {
         generate_key_address:address
     }
 
-    fun create_object_store_proof(caller:&signer,key_word1:String,object_store_id1:u64) acquires Resouces_cap {
+    public fun create_object_store_proof(caller:&signer,key_word1:String,object_store_id1:u64) acquires Resouces_cap {
         let resoucres_signer = &create_signer_with_capability(
             &borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql, Seed)).cap
         );
@@ -78,7 +78,7 @@ module aptos_sql::data_owner {
         });
 
     }
-    fun collection_init(caller:&signer) acquires Resouces_cap {
+    fun collection_init() acquires Resouces_cap {
         let resoucres_signer = &create_signer_with_capability(
             &borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql, Seed)).cap
         );
@@ -92,5 +92,9 @@ module aptos_sql::data_owner {
             extend_cap:exten_ref
         };
         move_to(&object::generate_signer( collection_consfer),new_control);
+    }
+    #[test_only]
+    public fun call_collection_init() acquires Resouces_cap {
+        collection_init()
     }
 }
