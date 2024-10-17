@@ -2,6 +2,7 @@ module aptos_sql::sql_struct {
 
     use std::option;
     use std::option::Option;
+    use std::string;
     use std::string::{String, utf8};
     use std::vector;
     use aptos_std::debug;
@@ -109,6 +110,11 @@ module aptos_sql::sql_struct {
 
     //=====================test=========================//
 
+    #[test_only]
+    public fun call_init(caller:&signer) acquires Root_node {
+        init_module(caller);
+    }
+
     #[test(caller=@aptos_sql)]
     fun test_init(caller:&signer) acquires Root_node {
         init_module(caller);
@@ -190,7 +196,7 @@ module aptos_sql::sql_struct {
         return 00000000000
     }
     // find key word of leaf key
-    fun find_leaf_Key(vector_leaf_key:&SmartVector<Leaf_key>,name:&String):u64{
+    fun find_leaf_Key(vector_leaf_key:&SmartVector<Leaf_key>,name:&String):Option<u64>{
         let i=0;
         let length=smart_vector::length(vector_leaf_key);
         while(i < length){
@@ -200,13 +206,13 @@ module aptos_sql::sql_struct {
             while (j < second_length){
                 let borrow_string = borrow(&specfic.key_word,j);
                 if(borrow_string == name){
-                    return i
+                    return option::some(i)
                 };
                 j=j+1;
             };
             i = i +1;
         };
-        return 00000000000
+        return  option::none()
     }
     fun return_table_v1(name:String,x1:u64,y1:u64,pointer_id:Option<u64>):Table_v1{
         Table_v1{
@@ -261,16 +267,33 @@ module aptos_sql::sql_struct {
 
     //===================== logic fun =========================//
     //===================== public struct fun =========================//
-    public fun search_all_node_without_information(name:String) acquires Root_node, Object_store {
-        let now_leaf_id= 0;
-        let a =&borrow_global<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children;
-        let leaf_next = find_leaf_node(a,now_leaf_id);
-        assert!(leaf_next != 00000000000,E_not_exist_leaf);
-        let leaf_node = smart_vector::borrow(a,leaf_next);
-        let leaf_key_index = find_leaf_Key(&leaf_node.key_word_store,&name);
-        assert!(leaf_key_index != 00000000000,E_not_exist_leaf_key);
-        let leaf_key = smart_vector::borrow(&leaf_node.key_word_store,leaf_key_index);
-        return_table_data(&leaf_key.key_address,0,0,option::some((1 as u64)));
+    public fun search_all_node_without_information(name:String): vector<String> acquires Root_node, Object_store {
+        // use for "SELECT * FROM <table_name>"
+        // return all data under that table
+        let result_vector = vector::empty<String>();
+        // Initialize now_leaf_id, or get it from Root_node based on actual logic
+        let root = borrow_global<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql, Seed), Seed));
+        let leaf_nodes = &root.children;
+        let  i = 0;
+        // Traverse all leaf nodes
+        let length = smart_vector::length(leaf_nodes);
+        while (i < length) {
+            let leaf_node = smart_vector::borrow(leaf_nodes, i);
+
+            // Find matching leaf_key for the name
+            let leaf_key_index = find_leaf_Key(&leaf_node.key_word_store, &name);
+            assert!(!option::is_none(&leaf_key_index), E_not_exist_leaf_key);
+
+            // If found, retrieve the corresponding leaf_key and data
+            let leaf_key = smart_vector::borrow(&leaf_node.key_word_store, option::destroy_some(leaf_key_index));
+            let return_vector_1 = return_table_data(&leaf_key.key_address, 0, 0, option::some((1 as u64)));
+            // Append found data to the result vector
+            vector::append(&mut result_vector, return_vector_1);
+            i = i + 1;
+        };
+        result_vector
+    }
+    public fun insert_new_table_struct(caller:&signer){
 
     }
     //===================== public struct fun =========================//
