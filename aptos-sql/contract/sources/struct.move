@@ -19,6 +19,9 @@ module aptos_sql::sql_struct {
     use aptos_framework::object::{Object, DeleteRef, ExtendRef, TransferRef, create_object_address};
     use aptos_framework::account::create_resource_address;
     use aptos_framework::genesis;
+    use aptos_sql::data_owner::create_object_store_proof;
+    #[test_only]
+    use aptos_sql::data_owner::call_collection_init;
 
 
     const Seed :vector<u8> = b"aptos_SQL";
@@ -58,10 +61,10 @@ module aptos_sql::sql_struct {
     // |("Excel 1",2,1,2) , (2,"b",v1 -> (3,1))   ||("Excel 1",2,2,13),(12,"e",v1 -> (3,2))| //
     // |==========================================||=======================================| //
     // |......................................... ||.......................................| //
-    // |==========================================||=======================================| //
-    // |("Excel 1",10,1,11 ), (10,"c",v1 -> (1,2))||("Excel 1",10,2,21),(20,"f",v1 ->(1,3))| //
-    // |==========================================||=======================================| //
-    struct Table_v2 has key ,store{
+    // |==========================================||=======================================| // |================last one==================| //
+    // |("Excel 1",10,1,11 ), (10,"c",v1 -> (1,2))||("Excel 1",10,2,21),(20,"f",v1 ->(1,3))| // |("Excel 1",10,10,none),(20,"f",v1 ->(1,3))| //
+    // |==========================================||=======================================| // |=======================================| //
+    struct Table_v2 has key ,store,copy{
         table_id:u64,
         store:String,
         pointer_y:Option<Table_v1>
@@ -78,6 +81,7 @@ module aptos_sql::sql_struct {
         next_leaf:Option<address>,  // leaf -> leaf , which leaf be the next one
         obj_store_id:u64,   // own object id
         next_obj_store_id:u64,  // object -> object , which object be the next one
+        length_of_table:u64,
         key_word:String,
         store:smart_table::SmartTable<Table_v1,Table_v2>       // store data
     }
@@ -128,15 +132,7 @@ module aptos_sql::sql_struct {
 
     //=====================test=========================//
 
-    public fun print_obj ()  {
-        // debug::print(&utf8(b"Generate object address"));
-        // debug::print(&object::create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed));
-        // debug::print(&utf8(b"object leaf node"));
-        // debug::print(&object::address_to_object<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed)));
-        //debug::print(&utf8(b"root leaf node"));
-        //debug::print(borrow_global<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed)));
 
-    }
 
     //===================== init fun =========================//
 
@@ -271,6 +267,68 @@ module aptos_sql::sql_struct {
         };
         new_vector
     }
+    //add data from i index
+    fun add_table_data_from_i(data_vector:&vector<String>,smart_table1:&mut SmartTable<Table_v1,Table_v2>,table_name1:String,start_index:u64){
+        let x_index = start_index/Table_colume_number;
+        let y_index = start_index%Table_colume_number;
+        if(x_index == 0){
+            x_index = 1;
+        };
+        let table_v1_1= Table_v1{
+            table_name:table_name1,
+            x:x_index,
+            y:y_index,
+            ponter_v2_id:option::some(start_index)
+        };
+        if( smart_table::contains(smart_table1,table_v1_1)){
+            let next_table_v2 = smart_table::borrow_mut(smart_table1,table_v1_1);
+            let table_v2_index = next_table_v2.table_id;
+            if(option::is_none(&next_table_v2.pointer_y)){
+                y_index+1;
+                let next_table_v1 = Table_v1 {
+                    table_name: table_name1,
+                    x: x_index,
+                    y: y_index ,
+                    ponter_v2_id: option::some(start_index + 1),
+                };
+                next_table_v2.pointer_y = option::some(next_table_v1);
+                let i = 0;
+                let length = vector::length(data_vector);
+                while (i < length){
+                    let borrow_string = vector::borrow(data_vector,i);
+
+                    let new_next_table_v1 = Table_v1{
+                        table_name:table_name1,
+                        x:x_index,
+                        y:y_index,
+                        ponter_v2_id:option::some(table_v2_index+1)
+                    };
+                    if(start_index+i %Table_colume_number == 0){
+                        x_index=x_index+1;
+                        y_index=0;
+                    }else{
+                        y_index= y_index+1;
+                    };
+                    let next_next_table_v1=Table_v1{
+                        table_name:table_name1,
+                        x:x_index,
+                        y:y_index,
+                        ponter_v2_id:option::some(table_v2_index+2)
+                    };
+                    let new_next_table_v2 = Table_v2{
+                        table_id:table_v2_index,
+                        store:*borrow_string,
+                        pointer_y:option::some(next_next_table_v1)
+                    };
+                    smart_table::add(smart_table1,new_next_table_v1, new_next_table_v2);
+                    table_v2_index=table_v2_index+1;
+                    i=i+1;
+                }
+            }
+        }
+    }
+
+    // from 0 add data for empty table
     fun add_table_date (data_vector:&vector<String>,smart_table1:&mut SmartTable<Table_v1,Table_v2>,table_name1:String){
         let i =0;
         let x_index= 1;
@@ -337,6 +395,10 @@ module aptos_sql::sql_struct {
               }
         };
     }
+    fun insert_data_have_table_name(){
+
+    }
+
     //===================== logic fun =========================//
     //===================== public struct fun =========================//
     public fun search_all_node_without_information(name:String): vector<String> acquires Root_node, Object_store {
@@ -365,14 +427,14 @@ module aptos_sql::sql_struct {
         };
         result_vector
     }
-    public fun insert_new_table_struct(caller:&signer,table_name:String,isert_data:vector<String>) acquires Root_node, Resouces_cap {
+    public fun insert_new_table_struct(caller:&signer,table_name1:String,new_data:vector<String>) acquires Root_node, Resouces_cap, Object_store {
         let root = borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed));
         root.entry_number+1;
         let new_smart_vector_key_word = smart_vector::empty<String>();
-        smart_vector::push_back(&mut new_smart_vector_key_word,table_name);
         let resource_signer = &create_signer_with_capability(&borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql,Seed)).cap);
-
+        smart_vector::push_back(&mut new_smart_vector_key_word,table_name1);
         if(root.leaf_number == 1){
+
             let borrow_leaf = smart_vector::borrow_mut(&mut root.children,0);
             if(borrow_leaf.now_leaf == 0){
                 let new_object = object::create_object(address_of(resource_signer));
@@ -386,15 +448,17 @@ module aptos_sql::sql_struct {
                     trans_ref:new_object_transref
                 };
                 move_to(&object::generate_signer(&new_object),new_object_cap);
-                let new_tanle = smart_table::new<Table_v1,Table_v2>();
+                let new_table = smart_table::new<Table_v1,Table_v2>();
+                add_table_date(&new_data,&mut new_table,table_name1);
                 let new_object_store = Object_store{
-                    is_leaf:0,
+                    is_leaf:1,
                     own_leaf_id:1,
                     next_leaf:option::none<address>(),
                     obj_store_id:1,
                     next_obj_store_id:2,
-                    key_word:table_name,
-                    store:new_tanle
+                    key_word:table_name1,
+                    length_of_table:smart_vector::length(&new_smart_vector_key_word),
+                    store:new_table
                 };
                 move_to(&object::generate_signer(&new_object), new_object_store);
                 let object_store = object::object_from_constructor_ref<Object_store>(&new_object);
@@ -404,9 +468,163 @@ module aptos_sql::sql_struct {
                     key_address:object_store
                 };
                 smart_vector::push_back(&mut borrow_leaf.key_word_store,new_leaf_key);
-            }
-        }
-        // create_object_store_proof(caller:&signer,key_word1:String,object_store_id1:u64)  // create key nft to owner
+
+            }else {
+               let key = find_leaf_Key(&borrow_leaf.key_word_store,&table_name1);
+                if(!option::is_none(&key)){
+                    let specific_leaf_key = smart_vector::borrow_mut(&mut borrow_leaf.key_word_store,option::destroy_some(key));
+                    let obj_address = object::object_address(&specific_leaf_key.key_address);
+                    let borrow_object_data = borrow_global_mut<Object_store>(obj_address);
+                    if(object::is_owner(specific_leaf_key.key_address,address_of(caller))){
+                        let x_index = borrow_object_data.length_of_table/Table_colume_number;
+                        let y_index = borrow_object_data.length_of_table%Table_colume_number;
+                        if(x_index == 0){
+                            x_index = 1;
+                        };
+                        let table_v1_1= Table_v1{
+                            table_name:table_name1,
+                            x:x_index,
+                            y:y_index,
+                            ponter_v2_id:option::some( borrow_object_data.length_of_table)
+                        };
+                       if( smart_table::contains(&borrow_object_data.store,table_v1_1)){
+                          let next_table_v2 = smart_table::borrow_mut(&mut borrow_object_data.store,table_v1_1);
+                           if(option::is_none(&next_table_v2.pointer_y)){
+
+                           }
+                       }
+                    };
+                    //delete after test
+                    let cons =object::create_object(address_of(caller));
+                    move_to(&object::generate_signer(&cons),Object_store{
+                        is_leaf:0,
+                        own_leaf_id:0,
+                        next_leaf:option::none<address>(),
+                        obj_store_id:0,
+                        next_obj_store_id:0,
+                        key_word:utf8(b""),
+                        length_of_table:0,
+                        store:smart_table::new<Table_v1,Table_v2>()
+                    });
+                    move_to(caller,Leaf_key{
+                        id:0,
+                        key_word:new_smart_vector_key_word,
+                        key_address:object::object_from_constructor_ref<Object_store>(&cons)
+                    });
+                    //delete after test
+                }else{
+                    //delete after test
+                    let cons =object::create_object(address_of(caller));
+                    move_to(&object::generate_signer(&cons),Object_store{
+                        is_leaf:0,
+                        own_leaf_id:0,
+                        next_leaf:option::none<address>(),
+                        obj_store_id:0,
+                        next_obj_store_id:0,
+                        key_word:utf8(b""),
+                        length_of_table:0,
+                        store:smart_table::new<Table_v1,Table_v2>()
+                    });
+                    move_to(caller,Leaf_key{
+                        id:0,
+                        key_word:new_smart_vector_key_word,
+                        key_address:object::object_from_constructor_ref<Object_store>(&cons)
+                    });
+                    //delete after test
+                }
+            };
+            create_object_store_proof(resource_signer,caller,table_name1,1)
+        }else{
+            let i=0;
+            let length_leaf_key = smart_vector::length(&root.children);
+            while (i < length_leaf_key){
+                let specific_leaf_node = smart_vector::borrow_mut(&mut root.children,i);
+                let key = find_leaf_Key(&specific_leaf_node.key_word_store,&table_name1);
+                if(option::is_none(&key)){
+                    //none states
+                }else{
+                    // have this table
+                };
+                i=i+1;
+            };
+            //delete after test
+            let cons =object::create_object(address_of(caller));
+            move_to(&object::generate_signer(&cons),Object_store{
+                is_leaf:0,
+                own_leaf_id:0,
+                next_leaf:option::none<address>(),
+                obj_store_id:0,
+                next_obj_store_id:0,
+                key_word:utf8(b""),
+                length_of_table:0,
+                store:smart_table::new<Table_v1,Table_v2>()
+            });
+            move_to(caller,Leaf_key{
+                id:0,
+                key_word:new_smart_vector_key_word,
+                key_address:object::object_from_constructor_ref<Object_store>(&cons)
+            });
+            //delete after test
+
+            create_object_store_proof(resource_signer,caller,table_name1,1)
+        };
+
+
+
+
+         //create_object_store_proof(caller,table_name1,object_store_id1:u64)  // create key nft to owner
     }
     //===================== public struct fun =========================//
+
+    #[test_only]
+    public fun struct_call_collision_init() acquires Resouces_cap {
+        let resource_signer = &create_signer_with_capability(&borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql,Seed)).cap);
+        call_collection_init(resource_signer);
+    }
+
+    //===================== print fun =========================//
+
+    public fun print_root_tree() acquires Root_node {
+        debug::print(&utf8(b"root struct"));
+        debug::print(borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)));
+    }
+    public fun print_object_store() acquires Root_node, Object_store {
+        debug::print(&utf8(b"object store struct"));
+        debug::print(borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)));
+    }
+    public fun print_table_data_all_key() acquires Root_node, Object_store {
+        debug::print(&utf8(b"table data struct 1"));
+        debug::print(vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),0));
+        debug::print(&utf8(b"table data struct 2"));
+        debug::print(vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),1));
+        debug::print(&utf8(b"table data struct 3"));
+        debug::print(vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),2));
+        debug::print(&utf8(b"table data struct 4"));
+        debug::print(vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),3));
+        debug::print(&utf8(b"table data struct 5"));
+        debug::print(vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),4));
+    }
+    public fun print_table_data_table_v2() acquires Root_node, Object_store {
+
+        debug::print(&utf8(b"table data table_v2 1"));
+        debug::print(smart_table::borrow(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store,*vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),0)));
+        debug::print(&utf8(b"table data table_v2 2"));
+        debug::print(smart_table::borrow(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store,*vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),1)));
+        debug::print(&utf8(b"table data table_v2 3"));
+        debug::print(smart_table::borrow(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store,*vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),2)));
+        debug::print(&utf8(b"table data table_v2 4"));
+        debug::print(smart_table::borrow(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store,*vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),3)));
+        debug::print(&utf8(b"table data table_v2 5"));
+        debug::print(smart_table::borrow(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store,*vector::borrow(&smart_table::keys(&borrow_global<Object_store>(object::object_address(&smart_vector::borrow(&smart_vector::borrow(&borrow_global_mut<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed),Seed)).children,0).key_word_store,0).key_address)).store),4)));
+    }
+    public fun print_obj ()  {
+        // debug::print(&utf8(b"Generate object address"));
+        // debug::print(&object::create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed));
+        // debug::print(&utf8(b"object leaf node"));
+        // debug::print(&object::address_to_object<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed)));
+        //debug::print(&utf8(b"root leaf node"));
+        //debug::print(borrow_global<Root_node>(object::create_object_address(&create_resource_address(&@aptos_sql,Seed ),Seed)));
+
+    }
+    //===================== print fun =========================//
 }

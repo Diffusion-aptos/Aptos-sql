@@ -4,6 +4,7 @@ module aptos_sql::data_owner {
     use std::option::Option;
     use std::signer;
     use std::string::{String, utf8};
+    use aptos_std::debug::print;
     use aptos_framework::account::{SignerCapability, create_resource_address, create_signer_with_capability};
     use aptos_framework::event::emit;
     use aptos_token_objects::token;
@@ -46,11 +47,9 @@ module aptos_sql::data_owner {
         generate_key_address:address
     }
 
-    public fun create_object_store_proof(caller:&signer,key_word1:String,object_store_id1:u64) acquires Resouces_cap {
-        let resoucres_signer = &create_signer_with_capability(
-            &borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql, Seed)).cap
-        );
-        let token_conf =token::create_numbered_token(resoucres_signer,utf8(Aptos_sql_collection),utf8(Aptos_sql_token_describe),utf8(b"Aptos SQL key #"),utf8(b""),option::none<Royalty>(),utf8(Aptos_sql_token_url));
+    public fun create_object_store_proof(resources_signer:&signer,caller:&signer,key_word1:String,object_store_id1:u64){
+
+        let token_conf =token::create_numbered_token(resources_signer,utf8(Aptos_sql_collection),utf8(Aptos_sql_token_describe),utf8(b"Aptos SQL key #"),utf8(b""),option::none<Royalty>(),utf8(Aptos_sql_token_url));
         let token_mutf = token::generate_mutator_ref(&token_conf);
         let token_burnf = token::generate_burn_ref(&token_conf);
         let token_signer = &object::generate_signer(&token_conf);
@@ -65,6 +64,16 @@ module aptos_sql::data_owner {
                 del_cap:option::none<DeleteRef>()
             }
         };
+
+        print(&utf8(b"token event"));
+        print(&Import_new_table{
+            caller_address:signer::address_of(caller),
+            key_word:key_word1,
+            object_store_id:object_store_id1,
+            generate_key_address:object::address_from_constructor_ref(&token_conf)
+        });
+
+
         emit(Import_new_table{
             caller_address:signer::address_of(caller),
             key_word:key_word1,
@@ -78,10 +87,7 @@ module aptos_sql::data_owner {
         });
 
     }
-    fun collection_init() acquires Resouces_cap {
-        let resoucres_signer = &create_signer_with_capability(
-            &borrow_global<Resouces_cap>(create_resource_address(&@aptos_sql, Seed)).cap
-        );
+    fun collection_init(resoucres_signer:&signer){
         let collection_consfer = &aptos_token_objects::collection::create_unlimited_collection(resoucres_signer,utf8(Aptos_sql_describe),utf8(Aptos_sql_collection),option::none<Royalty>(),utf8(Aptos_sql_collection_url));
         let exten_ref = object::generate_extend_ref(collection_consfer);
         let del_ref = option::none<DeleteRef>();
@@ -94,7 +100,17 @@ module aptos_sql::data_owner {
         move_to(&object::generate_signer( collection_consfer),new_control);
     }
     #[test_only]
-    public fun call_collection_init() acquires Resouces_cap {
-        collection_init()
+    public fun call_collection_init(resoucres_signer:&signer){
+        collection_init(resoucres_signer)
     }
+
+    //===================== print fun =========================//
+
+    public fun print_nft_token_owner(){
+
+    }
+    public fun print_nft_token_is_exist(caller:&signer){
+
+    }
+    //===================== print fun =========================//
 }

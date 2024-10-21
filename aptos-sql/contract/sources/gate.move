@@ -7,7 +7,7 @@ module aptos_sql::gate {
     use aptos_std::debug;
     use aptos_framework::account::create_resource_address;
     use aptos_framework::object;
-    use aptos_sql::sql_struct::{Root_node, search_all_node_without_information};
+    use aptos_sql::sql_struct::{Root_node, search_all_node_without_information, insert_new_table_struct};
     #[test_only]
     use aptos_sql::sql_struct::{call_init};
 
@@ -26,8 +26,8 @@ module aptos_sql::gate {
         select(sql);
 
     }
-    public entry fun insert_new_tables(caller:&signer){
-
+    public entry fun insert_new_tables(caller:&signer,table_name1:String,data_vector:vector<String>){
+        insert_new_table_struct(caller,table_name1,data_vector);
     }
 
 
@@ -44,26 +44,22 @@ module aptos_sql::gate {
         let find_place = string::sub_string(&input,7,7+space_index);
         assert!(string::sub_string(&input,7+space_index,7+space_index+1) == utf8(b" "),E_not_SQL);
         if(find_place == utf8(b"*")){
-                assert!(string::sub_string(&input,8+space_index,12+space_index) == utf8(b"FROM"),E_From_wrong);
-                assert!(string::sub_string(&input,12+space_index,13+space_index) == utf8(b" "),E_not_SQL);
-                debug::print(&utf8(b"form place index"));
-                debug::print(&string::sub_string(&input,13+space_index,vector::length(string::bytes(&input))));
+               /// assert!(string::sub_string(&input,8+space_index,12+space_index) == utf8(b"FROM"),E_From_wrong);
+               // assert!(string::sub_string(&input,12+space_index,13+space_index) == utf8(b" "),E_not_SQL);
+                //debug::print(&utf8(b"form place index"));
+               // debug::print(&string::sub_string(&input,13+space_index,vector::length(string::bytes(&input))));
                 let form_placr_index = find_space(string::sub_string(&input,13+space_index,vector::length(string::bytes(&input))));
                 let form_place =string::sub_string(&input,13+space_index,13+space_index+form_placr_index);
                 debug::print(&form_place);
-                let return_vector = search_all_node_without_information(form_place);
-                debug::print(&form_place);
+                //let return_vector = search_all_node_without_information(form_place);
+               // debug::print(&form_place);
         }else{
             // debug::print();
         }
     }
 
     // =========== test =================== //
-    #[test(caller=@aptos_sql)]
-    fun test_select ( caller:&signer){
-        call_init(caller);
-        sql_gate(utf8(b"SELECT * FROM XABcc where"))
-    }
+
 
 
     // =========== logic =================== //
